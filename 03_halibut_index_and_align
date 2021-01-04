@@ -1,0 +1,22 @@
+ #Index genome and align - halibut_bigalign_finalgenome.sh
+
+## Load software modules
+module load samtools
+module load bwa
+cd scratch/Halibut_trim_demultiplex/
+
+#index genome
+bwa index /home/tkess/Halibut/fHipHip1.pri.cur.20191125.fasta
+
+#Align_ALL
+
+for f1 in *.1.fq ;
+  do outfile=${f1%%.*.fq}"" ;
+  echo $outfile\.bam ;
+  bwa mem \
+  -t 24 \
+  -R "@RG\tID:{}\tSM:{}\tLB:Halibut" \
+  /home/tkess/Halibut/fHipHip1.pri.cur.20191125.fasta \
+  $outfile\.1.fq  $outfile\.2.fq \
+  | samtools sort -o $outfile\.sorted.bam -T $outfile -@ 24 -m 3G ;
+  done
