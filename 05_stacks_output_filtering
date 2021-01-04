@@ -1,0 +1,41 @@
+#filter by minimum mean depth of 15
+vcftools --vcf Halibut_finalgenome.snps.vcf \
+  --min-meanDP 15 \
+  --recode \
+  --out Halibut_finalgenome_mindp15
+#Also did this for minimum depth of 30
+
+#filter by chromosome-sized scaffolds
+vcftools --vcf Halibut_finalgenome_mindp15.recode.vcf \
+ --out Halibut_All_genome2_mindp15_24chrom \
+  --chr S1 --chr S2 --chr S3 --chr S4 \
+  --chr S5 --chr S6 --chr S7 --chr S8 \
+  --chr S9 --chr S10 --chr S11 --chr S12 \
+  --chr S13 --chr S14 --chr S15 --chr S16 \
+  --chr S17 --chr S18 --chr S19 --chr S20 \
+  --chr S21 --chr S22 --chr S23 --chr S24 \
+  --recode
+
+#remove scaffolds so plink/vcftools conversions doesn't get messed up
+awk '{OFS="\t"}{gsub(/S1/,"1",$1); print}' Halibut_finalgenome_mindp15_24chrom.recode.vcf | \
+  awk '{OFS="\t"}{gsub(/S2/,"2",$1); print}' | \
+  awk '{OFS="\t"}{gsub(/S3/,"3",$1); print}' | \
+  awk '{OFS="\t"}{gsub(/S4/,"4",$1); print}' | \
+  awk '{OFS="\t"}{gsub(/S5/,"5",$1); print}' | \
+  awk '{OFS="\t"}{gsub(/S6/,"6",$1); print}' | \
+  awk '{OFS="\t"}{gsub(/S7/,"7",$1); print}' | \
+  awk '{OFS="\t"}{gsub(/S8/,"8",$1); print}' | \
+  awk '{OFS="\t"}{gsub(/S9/,"9",$1); print}' > Halibut_finalgenome_mindp15_24chromnumbered.vcf
+
+#make plink
+vcftools --vcf Halibut_finalgenome_mindp15_24chromnumbered.vcf \
+  --plink \
+  --out Halibut_finalgenome_mindp15_24chrom
+
+#plink missing filter - exclude those with greater than 90% missing data
+~/Desktop/plink_linux/plink \
+  --file Halibut_finalgenome_mindp15_24chrom \
+  --make-bed \
+  --mind 0.1 \
+  --out Halibut_finalgenome_mindp15_24chrom_ming90 \
+  --recode
