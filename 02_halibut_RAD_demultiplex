@@ -1,0 +1,22 @@
+#2. Make directories for stacks demultiplexing output
+for i in {1..16}; do mkdir scratch/Halibut_Reads/Lib$i; done
+
+#3. Submit process_radtags scripts for demultiplexing  - script name below
+for i in  {1..16} ; do sbatch Halibut_procrad2.5/Halibut_Lib$i.sh; done
+
+#Halibut demultiplexing script:
+
+process_radtags=/home/tkess/stacks-2.5/process_radtags
+cd /home/tkess/scratch/Halibut_Reads
+
+$process_radtags -1 HI.5003.001.NEBNext_Index_9.HhiRAD09_R1_trim.fastq \
+  -2 HI.5003.001.NEBNext_Index_9.HhiRAD09_R2_trim.fastq \
+  -o Lib9 \
+  -b /home/tkess/Halibut_Barcodes/Halibut_Barcodes_Lib9.txt \
+  -r  --bestrad  \
+  -c -q \
+  -e 'sbfI' \
+  --barcode_dist_1 2 \
+
+#4. Remove remainder reads
+rm scratch/Halibut_Reads/*rem*
