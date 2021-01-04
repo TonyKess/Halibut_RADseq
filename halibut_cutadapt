@@ -1,0 +1,21 @@
+#1. Halibut read processing - halibut_cutadapt.sh
+module load python
+source ~/python_env/bin/activate
+cd /home/tkess/scratch/Halibut_Reads
+
+Cutadapt 2.1
+ls HI.*R1.fastq.gz | \
+  sed 's/R1.fastq.gz//'| \
+  parallel  'cutadapt \
+    -u 2 \
+    -U 2 \
+    --length 90 \
+    --minimum-length 90 \
+    -a TCGGAAGAGCACACGTCTGAACTCCAGTCACCGATGTATCTCGTATGCCG \
+    -a GATCGGAAGAGCACACGTCTGAACTCCAGTC \
+    -A CACTCTTTCCCTACACGACGCTCTTCCGATCT \
+    -A TCGGAAGAGCGTCGTGTAGGGAAAGAGTGTAGATCTCGGTGGTCGCCGTA \
+    -o {}R1_trim.fastq \
+    -p {}R2_trim.fastq \
+    {}R1.fastq.gz \
+    {}R2.fastq.gz '
