@@ -1,0 +1,20 @@
+##For quick(ish) read calling, use gstacks
+
+stacks-2.5/gstacks \
+  -M scratch/Halibut_trim_demultiplex/Halibut_Popfile.txt \
+  -t 24 \
+  --rm-pcr-duplicates \
+  -S .sorted.bam \
+  -I scratch/Halibut_trim_demultiplex/ \
+  -O scratch/Halibut_gstack_finalgenome/
+
+## Export in populations - SNPs for everywhere treated as a single pop
+
+stacks-2.5/populations -P  scratch/Halibut_gstack_finalgenome \
+  -O scratch/Halibut_RADgenotypes_final \
+  -t 12 \
+  -r 80 \
+  --min_maf 0.01 \
+  --hwe \
+  --vcf \
+  --radpainter
