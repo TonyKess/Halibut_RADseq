@@ -1,0 +1,225 @@
+#RDA by environment ####
+#Recode as RAW for RDA
+library(data.table)
+library(dplyr)
+library(ggplot2)
+library(vegan)
+library(ggman)
+library(qvalue)
+
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --recodeA --out Halibut_genome2_d15gt90HWE_withENV --chr-set 24")
+ENV_Metadata <- read.delim("Metadata_Halibut_ENV_noNAnoWF.txt", stringsAsFactors = F)
+GENO_RAW <- fread("Halibut_genome2_d15gt90HWE_withENV.raw",stringsAsFactors = F, data.table = F)
+colnames(GENO_RAW)[1] <- "ID"
+GENO_METADATA_SORT <- inner_join(ENV_Metadata, GENO_RAW)
+METADATA_PHENO_ENV_SORT <- GENO_METADATA_SORT[1:33]
+GENO_SORT <- GENO_METADATA_SORT[39:length(GENO_METADATA_SORT)]
+#impute
+GENO_SORT_IMP <- apply(GENO_SORT, 2, function(x) replace(x, is.na(x), as.numeric(names(which.max(table(x))))))
+
+
+#check env variable correlation - remove if > 0.7
+cor.test(METADATA_PHENO_ENV_SORT$TEMP_PC, METADATA_PHENO_ENV_SORT$O2_PC)
+cor.test(METADATA_PHENO_ENV_SORT$TEMP_PC, METADATA_PHENO_ENV_SORT$SALT_PC)
+cor.test(METADATA_PHENO_ENV_SORT$O2_PC, METADATA_PHENO_ENV_SORT$SALT_PC)
+#nope.
+
+
+#Biplot environmental variables
+TEMPS <- data.frame((cbind(METADATA_PHENO_ENV_SORT$BO2_tempmean_bdmean_sd, METADATA_PHENO_ENV_SORT$BO2_tempmin_bdmean_sd, METADATA_PHENO_ENV_SORT$BO2_tempmax_bdmean_sd)))
+colnames(TEMPS) <- c("temp_mean", "temp_min", "temp_max")
+TEMPPC <- prcomp(TEMPS)
+library(ggbiplot)
+
+ggbiplot(pcobj = TEMPPC, groups = METADATA_PHENO_ENV_SORT$Region) + theme_classic()
+mtcars.pca <- prcomp(mtcars)
+
+
+O2S <- data.frame((cbind(METADATA_PHENO_ENV_SORT$BO2_dissoxmean_bdmean_sd, METADATA_PHENO_ENV_SORT$BO2_dissoxmin_bdmean_sd, METADATA_PHENO_ENV_SORT$BO2_dissoxmax_bdmean_sd)))
+colnames(O2S) <- c("O2_mean", "O2_min", "O2_max")
+O2PC <- prcomp(O2S)
+
+ggbiplot(pcobj = O2PC, groups = METADATA_PHENO_ENV_SORT$Region) + theme_classic()
+
+
+SALTS<- data.frame((cbind(METADATA_PHENO_ENV_SORT$BO2_salinitymean_bdmean_sd, METADATA_PHENO_ENV_SORT$BO2_salinitymin_bdmean_sd, METADATA_PHENO_ENV_SORT$BO2_salinitymax_bdmean_sd)))
+colnames(SALTS) <- c("Salt_mean", "Salt_min", "Salt_max")
+SALTPC <- prcomp(SALTS)
+
+ggbiplot(pcobj = SALTPC, groups = METADATA_PHENO_ENV_SORT$Region) + theme_classic()
+
+
+#Environmental RDA
+ALL_ENVPC_RDA <-  rda(GENO_SORT_IMP ~ TEMP_PC + O2_PC + SALT_PC, data = METADATA_PHENO_ENV_SORT)
+
+#condition on geography
+ALL_ENVPC_RDA_cond <-  rda(GENO_SORT_IMP ~ TEMP_PC + O2_PC + SALT_PC + Condition(Lat + Lon), data = METADATA_PHENO_ENV_SORT)
+
+#RDA with just geographic info
+ALL_ENVPC_RDA_dists <-  rda(GENO_SORT_IMP ~ Lat + Lon, data = METADATA_PHENO_ENV_SORT)
+
+#adjusted R2, Significance testing, screeplots
+RsquareAdj(ALL_ENVPC_RDA)
+RsquareAdj(ALL_ENVPC_RDA_cond)
+RsquareAdj(ALL_ENVPC_RDA_dists)
+
+
+anova.cca(ALL_ENVPC_RDA, parallel= 8,by = "terms")
+anova.cca(ALL_ENVPC_RDA_cond, parallel= 8,by = "terms")
+anova.cca(ALL_ENVPC_RDA_dists, parallel= 8,by = "terms")
+
+
+screeplot(ALL_ENVPC_RDA)
+screeplot(ALL_ENVPC_RDA_cond)
+screeplot(ALL_ENVPC_RDA_dists)
+
+#Get proportion variance per axis
+summary(eigenvals(ALL_ENVPC_RDA, model = "constrained"))
+summary(eigenvals(ALL_ENVPC_RDA_cond, model = "constrained"))
+summary(eigenvals(ALL_ENVPC_RDA_dists, model = "constrained"))
+
+#plot RDA biplot
+bg <- c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid")
+bg2 <- colorRampPalette(c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid"))(n=35)
+eco <- as.factor(METADATA_PHENO_ENV_SORT$Region)
+plot(ALL_ENVPC_RDA, type="n", scaling=3)
+points(ALL_ENVPC_RDA, display="species", pch=20, cex=0.7, col="gray32", scaling=3)           # the SNPs
+points(ALL_ENVPC_RDA, display="sites", pch=21, cex=1.3, col="gray32", scaling=3, bg=bg[eco]) # the fish
+text(ALL_ENVPC_RDA, scaling=3, display="bp", col="#0868ac", cex=1)                           # the predictors
+legend("bottom", legend=levels(eco), bty="n", col="gray32", pch=21, cex=0.5, pt.bg=bg)
+cor.test(METADATA_PHENO_ENV_SORT$TEMP_PC, METADATA_PHENO_ENV_SORT$O2_PC)
+
+#plot axis 1 and 3
+bg <- c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid")
+bg2 <- colorRampPalette(c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid"))(n=35)
+eco <- as.factor(METADATA_PHENO_ENV_SORT$Region)
+plot(ALL_ENVPC_RDA, type="n", scaling=3, choices = c(1,3))
+points(ALL_ENVPC_RDA, display="species", pch=20, cex=0.7, col="gray32", scaling=3,  choices = c(1,3))           # the SNPs
+points(ALL_ENVPC_RDA, display="sites", pch=21, cex=1.3, col="gray32", scaling=3, bg=bg[eco],  choices = c(1,3)) # the fish
+text(ALL_ENVPC_RDA, scaling=3, display="bp", col="#0868ac", cex=1,  choices = c(1,3))                           # the predictors
+legend("bottom", legend=levels(eco), bty="n", col="gray32", pch=21, cex=0.5, pt.bg=bg)
+
+
+library(robust)
+library(qvalue)
+#rdadapt
+rdadapt<-function(rda,K)
+{
+  loadings<-rda$CCA$v[,1:as.numeric(K)]
+  resscale <- apply(loadings, 2, scale)
+  resmaha <- covRob(resscale, distance = TRUE, na.action= na.omit, estim="pairwiseGK")$dist
+  lambda <- median(resmaha)/qchisq(0.5,df=K)
+  reschi2test <- pchisq(resmaha/lambda,K,lower.tail=FALSE)
+  qval <- qvalue(reschi2test)
+  q.values_rdadapt<-qval$qvalues
+  return(data.frame(p.values=reschi2test, q.values=q.values_rdadapt))
+}
+
+RDADPT_K3 <- rdadapt(ALL_ENVPC_RDA, K = 3)
+
+#Get SNP scores
+ENV_RDA_SNPSCORES <- data.frame(ALL_ENVPC_RDA$CCA$v[,1:3], stringsAsFactors = F)
+SNPnames <- as.character(rownames(ENV_RDA_SNPSCORES))
+library(rsed)
+ENV_RDA_SNPSCORES$SNP <- as.character(sed_substitute(SNPnames, "_.*", ""))
+Chrom_map <- read.delim("Halibut_genome2_d15gt90HWE_withENV_12.map", stringsAsFactors = F, header = F)
+colnames(Chrom_map) <- c("Chrom", "SNP", "CM", "BP")
+
+ENV_RDA_SNPSCORES_MAPPED <- inner_join(Chrom_map, ENV_RDA_SNPSCORES)
+ENV_RDA_SNPSCORES_MAPPED$RDA1_abs <-  abs(as.numeric(as.character(ENV_RDA_SNPSCORES$RDA1)))
+ENV_RDA_SNPSCORES_MAPPED$RDA2_abs <-  abs(as.numeric(as.character(ENV_RDA_SNPSCORES$RDA2)))
+ENV_RDA_SNPSCORES_MAPPED$RDA3_abs <-  abs(as.numeric(as.character(ENV_RDA_SNPSCORES$RDA3)))
+
+ENV_RDA_SNPSCORES_MAPPED <- data.frame(cbind(ENV_RDA_SNPSCORES_MAPPED, RDADPT_K3), stringsAsFactors = F)
+class(ENV_RDA_SNPSCORES_MAPPED$q.values)
+
+RDA_ADAPT_Q01 <- ENV_RDA_SNPSCORES_MAPPED[which(ENV_RDA_SNPSCORES_MAPPED$q.values < 0.01),]
+RDA_ADAPT_Q05 <- ENV_RDA_SNPSCORES_MAPPED[which(ENV_RDA_SNPSCORES_MAPPED$q.values < 0.05),]
+
+
+write.table(RDA_ADAPT_Q05, "RDA_ADAPT_Q05.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+write.table(RDA_ADAPT_Q05$SNP, "RDA_ADAPT_Q05_SNPs.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+
+write.table(RDA_ADAPT_Q01, "RDA_ADAPT_Q01.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+write.table(RDA_ADAPT_Q01$SNP, "RDA_ADAPT_Q01_SNPs.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+
+
+#Plot RDA scores
+ggman(ENV_RDA_SNPSCORES_MAPPED, chrom = "Chrom", pvalue = "q.values", snp = "SNP", bp="BP", pointSize = 1, title = "Halibut", xlabel = "Chromosome",  logTransform = T, ylabel = "RDA1", sigLine = -log10(0.05) ) + theme_classic()
+
+#Get outliers for each axis  99.9%
+RDA1_ENV_OL <- ENV_RDA_SNPSCORES_MAPPED[which(ENV_RDA_SNPSCORES_MAPPED$RDA1_abs > quantile(x = ENV_RDA_SNPSCORES_MAPPED$RDA1_abs, 0.999 )),]
+RDA2_ENV_OL <- ENV_RDA_SNPSCORES_MAPPED[which(ENV_RDA_SNPSCORES_MAPPED$RDA2_abs > quantile(x = ENV_RDA_SNPSCORES_MAPPED$RDA2_abs, 0.999 )),]
+RDA3_ENV_OL <- ENV_RDA_SNPSCORES_MAPPED[which(ENV_RDA_SNPSCORES_MAPPED$RDA3_abs > quantile(x = ENV_RDA_SNPSCORES_MAPPED$RDA3_abs, 0.999 )),]
+
+RDA_999OL <- unique(c(RDA1_ENV_OL$SNP, RDA2_ENV_OL$SNP, RDA3_ENV_OL$SNP))
+RDA_999OL_RDADAPT <- ENV_RDA_SNPSCORES_MAPPED[ENV_RDA_SNPSCORES_MAPPED$SNP %in% RDA_999OL,]
+RDA_999OL_RDADAPT <- RDA_999OL_RDADAPT[which(RDA_999OL_RDADAPT$q.values < 0.05),]
+write.table(RDA_999OL_RDADAPT, "RDA_999OL_RDADAPT.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+write.table(RDA_999OL_RDADAPT$SNP, "RDA_999OL_RDADAPT_SNPs.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+
+
+#Conditioned by geography
+
+ALL_ENVPC_RDA_cond <-  rda(GENO_SORT_IMP ~ TEMP_PC + O2_PC + SALT_PC + Condition(Lat + Lon), data = METADATA_PHENO_ENV_SORT)
+
+
+#plot
+bg <- c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid")
+bg2 <- colorRampPalette(c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid"))(n=35)
+eco <- as.factor(METADATA_PHENO_ENV_SORT$Region)
+plot(ALL_ENVPC_RDA_cond, type="n", scaling=3)
+points(ALL_ENVPC_RDA_cond, display="species", pch=20, cex=0.7, col="gray32", scaling=3)           # the SNPs
+points(ALL_ENVPC_RDA_cond, display="sites", pch=21, cex=1.3, col="gray32", scaling=3, bg=bg[eco]) # the fish
+text(ALL_ENVPC_RDA_cond, scaling=3, display="bp", col="#0868ac", cex=1)                           # the predictors
+legend("bottom", legend=levels(eco), bty="n", col="gray32", pch=21, cex=0.5, pt.bg=bg)
+
+#plot axis 1 and 3
+bg <- c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid")
+bg2 <- colorRampPalette(c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid"))(n=35)
+eco <- as.factor(METADATA_PHENO_ENV_SORT$Region)
+plot(ALL_ENVPC_RDA_cond, type="n", scaling=3, choices = c(1,3))
+points(ALL_ENVPC_RDA_cond, display="species", pch=20, cex=0.7, col="gray32", scaling=3,  choices = c(1,3))           # the SNPs
+points(ALL_ENVPC_RDA_cond, display="sites", pch=21, cex=1.3, col="gray32", scaling=3, bg=bg[eco],  choices = c(1,3)) # the fish
+text(ALL_ENVPC_RDA_cond, scaling=3, display="bp", col="#0868ac", cex=1,  choices = c(1,3))                           # the predictors
+legend("bottom", legend=levels(eco), bty="n", col="gray32", pch=21, cex=0.5, pt.bg=bg)
+
+
+
+RDADPT_K3_cond <- rdadapt(ALL_ENVPC_RDA_cond, K = 3)
+
+#Get SNP scores
+ENV_RDA_SNPSCORES_cond <- data.frame(ALL_ENVPC_RDA_cond$CCA$v[,1:3], stringsAsFactors = F)
+SNPnames <- as.character(rownames(ENV_RDA_SNPSCORES_cond))
+library(rsed)
+ENV_RDA_SNPSCORES_cond$SNP <- as.character(sed_substitute(SNPnames, "_.*", ""))
+Chrom_map <- read.delim("Halibut_genome2_d15gt90HWE_withENV_12.map", stringsAsFactors = F, header = F)
+colnames(Chrom_map) <- c("Chrom", "SNP", "CM", "BP")
+
+ENV_RDA_SNPSCORES_MAPPED_cond <- inner_join(Chrom_map, ENV_RDA_SNPSCORES_cond)
+ENV_RDA_SNPSCORES_MAPPED_cond$RDA1_abs <-  abs(as.numeric(as.character(ENV_RDA_SNPSCORES_cond$RDA1)))
+ENV_RDA_SNPSCORES_MAPPED_cond$RDA2_abs <-  abs(as.numeric(as.character(ENV_RDA_SNPSCORES_cond$RDA2)))
+ENV_RDA_SNPSCORES_MAPPED_cond$RDA3_abs <-  abs(as.numeric(as.character(ENV_RDA_SNPSCORES_cond$RDA3)))
+
+ENV_RDA_SNPSCORES_MAPPED_cond <- data.frame(cbind(ENV_RDA_SNPSCORES_MAPPED_cond, RDADPT_K3_cond), stringsAsFactors = F)
+class(ENV_RDA_SNPSCORES_MAPPED_cond$q.values)
+
+RDA_ADAPT_Q01_cond <- ENV_RDA_SNPSCORES_MAPPED_cond[which(ENV_RDA_SNPSCORES_MAPPED_cond$q.values < 0.01),]
+RDA_ADAPT_Q05_cond <- ENV_RDA_SNPSCORES_MAPPED_cond[which(ENV_RDA_SNPSCORES_MAPPED_cond$q.values < 0.05),]
+
+
+#Plot RDA scores
+ggman(ENV_RDA_SNPSCORES_MAPPED_cond, chrom = "Chrom", pvalue = "q.values", snp = "SNP", bp="BP", pointSize = 1, title = "Halibut", xlabel = "Chromosome",  logTransform = T, ylabel = "RDA1", sigLine = -log10(0.05) ) + theme_classic()
+ggman(ENV_RDA_SNPSCORES_MAPPED, chrom = "Chrom", pvalue = "q.values", snp = "SNP", bp="BP", pointSize = 1, title = "Halibut", xlabel = "Chromosome",  logTransform = T, ylabel = "RDA1", sigLine = -log10(0.05) ) + theme_classic()
+
+#Get outliers for each axis  99.9%
+RDA1_ENV_OL_cond <- ENV_RDA_SNPSCORES_MAPPED_cond[which(ENV_RDA_SNPSCORES_MAPPED_cond$RDA1_abs > quantile(x = ENV_RDA_SNPSCORES_MAPPED_cond$RDA1_abs, 0.999 )),]
+RDA2_ENV_OL_cond <- ENV_RDA_SNPSCORES_MAPPED_cond[which(ENV_RDA_SNPSCORES_MAPPED_cond$RDA2_abs > quantile(x = ENV_RDA_SNPSCORES_MAPPED_cond$RDA2_abs, 0.999 )),]
+RDA3_ENV_OL_cond <- ENV_RDA_SNPSCORES_MAPPED_cond[which(ENV_RDA_SNPSCORES_MAPPED_cond$RDA3_abs > quantile(x = ENV_RDA_SNPSCORES_MAPPED_cond$RDA3_abs, 0.999 )),]
+
+RDA_999OL_cond <- unique(c(RDA1_ENV_OL_cond$SNP, RDA2_ENV_OL_cond$SNP, RDA3_ENV_OL_cond$SNP))
+RDA_999OL_RDADAPT_cond <- ENV_RDA_SNPSCORES_MAPPED_cond[ENV_RDA_SNPSCORES_MAPPED_cond$SNP %in% RDA_999OL_cond,]
+RDA_999OL_RDADAPT_cond <- RDA_999OL_RDADAPT_cond[which(RDA_999OL_RDADAPT_cond$q.values < 0.05),]
+RDA_OL_both <- RDA_999OL_RDADAPT_cond$SNP[RDA_999OL_RDADAPT_cond$SNP %in% RDA_999OL_RDADAPT$SNP]
+
+
