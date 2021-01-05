@@ -1,0 +1,11 @@
+module load  nixpkgs/16.09
+module load gcc/5.4.0
+module load htslib
+module load samtools
+module load angsd
+cd scratch/Halibut_trim_demultiplex/
+
+/home/tkess/angsd/misc/realSFS Halibut_ATL.saf.idx -fold 1 > Halibut_ATL_200_fold.txt
+/home/tkess/angsd/misc/realSFS Halibut_Gulf.saf.idx -fold 1 > Halibut_Gulf_200_fold.txt
+
+
