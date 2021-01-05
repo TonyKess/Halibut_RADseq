@@ -1,0 +1,268 @@
+library(pcadapt)
+library(data.table)
+library(superheat)
+library(dplyr)
+library(ggplot2)
+library(vegan)
+library(ggman)
+library(qvalue)
+setwd("~/Desktop/Projects/Halibut_FinalRAD/")
+
+#build cluster file for per-locus FST calculation
+ENV_Metadata <- read.delim("Metadata_Halibut_ENV_noNAnoWF.txt", stringsAsFactors = F)
+
+Gulf_fish <- ENV_Metadata$ID[ENV_Metadata$Region %in% "Gulf of St. Lawrence"]
+Gulf_clusterfile <- cbind(Gulf_fish, Gulf_fish, rep("Gulf", length(Gulf_fish)))
+colnames(Gulf_clusterfile) <- c("FID", "IID", "CLUSTER")
+
+NOTGulf_fish <- ENV_Metadata$ID[!(ENV_Metadata$Region %in% "Gulf of St. Lawrence")]
+NOTGulf_clusterfile <- cbind(NOTGulf_fish, NOTGulf_fish, rep("NOTGulf", length(NOTGulf_fish)))
+colnames(NOTGulf_clusterfile) <- c("FID", "IID", "CLUSTER")
+Clusterfile <- rbind(Gulf_clusterfile, NOTGulf_clusterfile)
+write.table(Clusterfile, "Gulfnogulf.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV  --fst --chr-set 24 --within Gulfnogulf.txt --out FST_across_genome_gulf")
+FST_gnome_gulf <- read.delim("FST_across_genome_gulf.fst", stringsAsFactors = F)
+Chrom_map <- read.delim("Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV.map", stringsAsFactors = F, header = F)
+
+#Select top 1% as outliers
+FST_ol_gulf <- FST_gnome_gulf[which(FST_gnome_gulf$FST>quantile(FST_gnome_gulf$FST, 0.99, na.rm = T)),]
+
+#Downsample for visualization
+Subsamp_FST <-sample_n(FST_gnome_gulf, 15000 )
+Subsamp_FST_withOL <- distinct(rbind(Subsamp_FST, FST_ol_gulf))
+
+#Manhattan plot of FST
+FSTPLOT <- ggman(Subsamp_FST_withOL, chrom = "CHR", pvalue = "FST", snp = "SNP", bp="POS", pointSize = 1.5, title = "Halibut", xlabel = "Chromosome", ylabel = "FST", logTransform = F, ymin = 0, ymax = 0.1, sigLine = quantile(FST_gnome_gulf$FST, 0.99)) + theme_classic()
+
+#Compare with outliers from RDA, PCA
+OL_PCADAPT <- read.delim("OL_K3_Autosome_Outliers.txt", stringsAsFactors = F, header = T)
+OL_RDA_ENV <- read.delim("RDA_999OL_RDADAPT_SNPs.txt", header = F , stringsAsFactors = F)
+
+length(OL_RDA_ENV$V1[OL_RDA_ENV$V1 %in% FST_ol_gulf$SNP])
+length(OL_PCADAPT$SNP[OL_PCADAPT$SNP %in% FST_ol_gulf$SNP])
+
+#Visualize overlap of PCA, RDA, and FST outliers in Manhattan plot
+ggmanHighlight(ggmanPlot = FSTPLOT, highlight = OL_RDA_ENV$V1)
+ggmanHighlight(ggmanPlot = FSTPLOT, highlight = OL_PCADAPT$SNP)
+
+
+#Write sets of SNPs for filtering for pop structure calculations, Ne comparisons
+write.table(OL_K3_Autosome$SNP, "Autosomal_Outliers_tofilter.txt", sep = "\t", quote = F, row.names = F, col.names = F)
+write.table(FST_ol_gulf$SNP, "FST_OL99_gulf_tofilter.txt", sep = "\t", quote = F, row.names = F, col.names = F)
+write.table(OL_RDA_ENV$V1, "RDA_OL999_tofilter.txt", sep = "\t", quote = F, row.names = F, col.names = F)
+system("cat *filter.txt | sort | uniq > To_filterfor_neutral.txt")
+
+#Filter FST OL SET 
+system("~/Desktop/Popgen_software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --extract FST_OL99_gulf_tofilter.txt --out Halibut_genome2_d15gt90HWE_FSTOL_gulf --recode --make-bed --chr-set 24 ")
+#Recode 12
+system("~/Desktop/Popgen_software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --extract FST_OL99_gulf_tofilter.txt --out Halibut_genome2_d15gt90HWE_FSTOL12_gulf --recode12 --make-bed --chr-set 24 ")
+
+
+##PCA of divergent SNPs - FST_OL
+Halib<- read.pcadapt("Halibut_genome2_d15gt90HWE_FSTOL_gulf.ped", type = "ped")
+PCs <- pcadapt(Halib, K = 5, min.maf = 0.01)
+FAM <- read.delim("Halibut_genome2_d15gt90HWE_FSTOL_gulf.fam", stringsAsFactors = F, header = F, sep = "")
+Metadata <- read.delim("Metadata_Halibut_ENV_noNAnoWF.txt", header = T, stringsAsFactors = F)
+ID <- FAM[1]
+colnames(ID)[1] <- "ID"
+Metadata_sorted <- inner_join(ID, Metadata)
+plot(PCs, "manhattan")
+PC_scores_pop <- as.data.frame(cbind(Metadata_sorted, PCs$scores))
+plot(PCs, option="scores", pop =  Metadata_sorted$Region, i = 1, j =2 ) + theme_classic()
+plot(PCs,  option = "screeplot")
+
+#prepare ordered IDs for plotting ####
+POP <- data.frame(cbind(Metadata$ID, Metadata$Region), stringsAsFactors = F)
+colnames(POP) <- c("ID", "Regions")
+HBUT_IDs <-as.data.frame(system("awk '{print $2}' Halibut_genome2_d15gt90HWE_FSTOL12_gulf.ped", intern = T), stringsAsFactors = F)
+
+colnames(HBUT_IDs) <- "ID"
+ID_REGION <- dplyr::inner_join(HBUT_IDs, POP)
+ID_REGION$ID
+
+#SNMF#### FST OUTLIERS
+library(LEA)
+library(lfmm)
+library(adegenet)
+
+
+ped2lfmm(input.file = "Halibut_genome2_d15gt90HWE_FSTOL12_gulf.ped")
+pc = pca("Halibut_genome2_d15gt90HWE_FSTOL12_gulf.lfmm") 
+tc = tracy.widom(pc)
+plot(tc$percentage)
+project2 = NULL
+project2 = snmf(input.file = "Halibut_genome2_d15gt90HWE_FSTOL12_gulf.lfmm", K = 1:5, entropy = TRUE, project = "new", CPU = 16 )
+plot(project2, col = "blue", pch = 19, cex = 1.2)
+
+#plot K = 2
+best = which.min(cross.entropy(project2, K = 2))
+my.colors <- c( "dodgerblue", "red", "purple")
+bg2 <- colorRampPalette(c("dodgerblue", "red", "purple", "cyan", "orange", "goldenrod", "orchid"))(n=35)
+barchart(project2, K = 2, run = best,
+         border = NA, space = 0,
+         col = bg2,
+         xlab = "Individuals",
+         ylab = "Ancestry proportions",
+         main = "Ancestry matrix") -> bp
+axis(1, at = 1:length(bp$order),
+     labels = ID_REGION$Region[bp$order], las=1,
+     cex.axis = .3)
+
+library(tidyverse)
+Qval <- data.frame(cbind(ID_REGION, Q(object = project2, K = 2, run = 1)), stringsAsFactors = F)
+Qval_ord <- Qval[order(Qval$Region),]
+tbl = Qval_ord
+rownames(tbl) <- Qval_ord$ID
+
+plot_data <-  tbl %>% 
+  gather('pop', 'prob', V1:V2) %>% 
+  group_by(ID)
+
+
+#plot separated by region
+ggplot(plot_data, aes(ID, prob, fill = pop)) +
+  geom_col() +
+  facet_grid(~Regions, scales = 'free', space = 'free')
+
+
+#heterozygosity, Ne
+Gulf_meta <-Metadata_sorted[Metadata_sorted$Region %in% "Gulf of St. Lawrence",]
+write.table(cbind(Gulf_meta$ID, Gulf_meta$ID), "Gulf_inds_plink.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --keep Gulf_inds_plink.txt --out Halibut_nosexchrom_Gulf --not-chr 18 --recode --make-bed --hardy --chr-set 24 ")
+Gulf_het <- fread("Halibut_nosexchrom_Gulf.hwe", data.table = F, stringsAsFactors = F)
+mean(Gulf_het$`O(HET)`)
+mean(Gulf_het$`E(HET)`)
+
+
+Notgulf_meta <- Metadata_sorted[!(Metadata_sorted$Region %in% "Gulf of St. Lawrence"),]
+write.table(cbind(Notgulf_meta$ID, Notgulf_meta$ID), "Notgulf_inds_plink.txt", sep = "\t", col.names = F, row.names = F, quote = F)
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --keep Notgulf_inds_plink.txt --out Halibut_nosexchrom_notGulf --not-chr 18 --recode --make-bed --hardy --chr-set 24 ")
+NOTGulf_het <- fread("Halibut_nosexchrom_notGulf.hwe", data.table = F, stringsAsFactors = F)
+mean(NOTGulf_het$`O(HET)`)
+mean(NOTGulf_het$`E(HET)`)
+
+
+#Make lists of equal sample sized groups (n = 60) for SNEP, Neestimator 
+Gulf60 <- sample_n(Gulf_meta, 60)
+write.table(cbind(Gulf60$ID, Gulf60$ID), "Gulf_60.txt", col.names = F, sep = "\t", row.names = F, quote = F)
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --keep Gulf_60.txt --out Halibut_nosexchrom_Gulf60 --not-chr 18 --recode --make-bed  --geno 0 --chr-set 24 ")
+
+Notgulf_60 <- sample_n(Notgulf_meta, 60)
+write.table(cbind(Notgulf_60$ID, Notgulf_60$ID), "Notgulf_60.txt", col.names = F, sep = "\t", row.names = F, quote = F)
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --keep Notgulf_60.txt --out Halibut_nosexchrom_NOTGulf60 --not-chr 18 --recode --make-bed  --geno 0 --chr-set 24 ")
+#Total dataset
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV  --out Halibut_nosexchrom --maf 0.05 --not-chr 18 --recode --make-bed  --geno 0 --chr-set 24 ")
+
+
+#Plot SNEP results
+Gulf_Ne <- read.delim("~/Desktop/Projects/Halibut_FinalRAD/halbut_demog/Halibut_nosexchrom_Gulf60.NeAll", stringsAsFactors=FALSE)
+NotGulf_Ne <- read.delim("~/Desktop/Projects/Halibut_FinalRAD/halbut_demog/Halibut_nosexchrom_NOTGulf60.NeAll", stringsAsFactors=FALSE)
+
+Gulf_Ne$Year <- Gulf_Ne$GenAgo * (9.5)
+NotGulf_Ne$Year <- NotGulf_Ne$GenAgo * 9.5
+Gulf_Ne$Scale_Ne <- Gulf_Ne$Ne/max(Gulf_Ne$Ne)
+NotGulf_Ne$Scale_Ne <- NotGulf_Ne$Ne/max(NotGulf_Ne$Ne)
+
+ggplot() + geom_line(data = Gulf_Ne, aes(x = Year, y = Scale_Ne, colour = "Gulf of St. Lawrence"))  +
+  geom_point(data = Gulf_Ne, aes(x = Year, y = Scale_Ne, colour = "Gulf of St. Lawrence")) + 
+  geom_line(data = NotGulf_Ne, aes(x = Year, y = Scale_Ne, colour = "Coastal Atlantic")) + 
+  geom_point(data = NotGulf_Ne, aes(x =Year, y = Scale_Ne, colour = "Coastal Atlantic")) +
+theme_classic()
+
+
+#NEUTRAL_SET
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV --exclude To_filterfor_neutral.txt --out Halibut_genome2_d15gt90HWE_NEUTRAL --not-chr 18 --recode --make-bed --chr-set 24 ")
+#LD PRUNE 
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_genome2_d15gt90HWE_NEUTRAL --indep-pairwise 50 5 0.5 --out Halibut_window_LD --chr-set 24 ")
+
+
+#Subset and thin 1000 loci in different groups for NeEstimator
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_genome2_d15gt90HWE_NEUTRAL --exclude Halibut_window_LD.prune.out --out Halibut_genome2_d15gt90HWE_NEUTRAL_LE --not-chr 15,18  --maf 0.05 --recode  --make-bed --chr-set 24 ")
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_genome2_d15gt90HWE_NEUTRAL_LE  --out Halibut_genome2_d15gt90HWE_NEUTRAL_LE_1000 --thin-count 1000  --recode  --make-bed --chr-set 24 ")
+
+
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_genome2_d15gt90HWE_NEUTRAL --exclude Halibut_window_LD.prune.out --out Halibut_genome2_d15gt90HWE_NEUTRAL_LE_Gulf60 --not-chr 15,18 --keep Gulf_60.txt   --maf 0.05 --recode  --make-bed --chr-set 24 ")
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_genome2_d15gt90HWE_NEUTRAL_LE_Gulf60 --out Halibut_genome2_d15gt90HWE_NEUTRAL_LE_Gulf60_1000 --thin-count 1000  --recode  --make-bed --chr-set 24 ")
+
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_genome2_d15gt90HWE_NEUTRAL --exclude Halibut_window_LD.prune.out --out Halibut_genome2_d15gt90HWE_NEUTRAL_LE_NOTGulf60 --not-chr 15,18 --keep Notgulf_60.txt   --maf 0.05 --recode  --make-bed --chr-set 24 ")
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_genome2_d15gt90HWE_NEUTRAL_LE_NOTGulf60 --exclude Halibut_window_LD.prune.out --out Halibut_genome2_d15gt90HWE_NEUTRAL_LE_NOTGulf60_1000 --thin-count 1000  --recode  --make-bed --chr-set 24 ")
+
+
+#plot stairways
+GoStL_stairway <- fread("~/Desktop/Software/stairway_plot_v2.1.1/halibut_Gulf_fold_200/Atlantic Halibut Gulf 10 to 500K years.final.summary", stringsAsFactors = F, data.table = F)
+colnames(GoStL_stairway) <- c("mutation_per_site",     "n_estimation",          "theta_per_site_median", "theta_per_site_2.5",   "theta_per_site_97.5","year", "Ne_median" ,"Ne_2.5","Ne_97.5", "Ne_12.5",  "Ne_87.5" )
+
+ATL_stairway <- fread("~/Desktop/Software/stairway_plot_v2.1.1/halibut_ATL_fold_200/Atlantic Halibut ATL 10 to 500K years.final.summary", stringsAsFactors = F, data.table = F)
+colnames(ATL_stairway) <- c("mutation_per_site",     "n_estimation",          "theta_per_site_median", "theta_per_site_2.5",   "theta_per_site_97.5","year", "Ne_median" ,"Ne_2.5","Ne_97.5", "Ne_12.5",  "Ne_87.5" )
+min(GoStL_stairway$Ne_median)
+min(ATL_stairway$Ne_median)
+
+#log scaled
+ggplot() + geom_line(data = GoStL_stairway[which(GoStL_stairway$year<150000),], aes(y = Ne_median, x = log10(year), colour = "GoStL" )) + 
+  geom_line(data = GoStL_stairway[which(GoStL_stairway$year<150000),], aes(y = Ne_2.5, x = log10(year), colour = "GoStL" )) +
+  geom_line(data = GoStL_stairway[which(GoStL_stairway$year<150000),], aes(y = Ne_97.5, x = log10(year), colour = "GoStL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") +geom_vline(xintercept = log10(115000), colour = "green") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic() + geom_line(data = ATL_stairway[which(ATL_stairway$year<150000),], aes(y = Ne_median, x = log10(year), colour = "ATL" )) + 
+  geom_line(data = ATL_stairway[which(ATL_stairway$year<150000),], aes(y = Ne_2.5, x = log10(year), colour = "ATL" )) +
+  geom_line(data = ATL_stairway[which(ATL_stairway$year<150000),], aes(y = Ne_97.5, x = log10(year), colour = "ATL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") + geom_vline(xintercept = log10(115000), colour = "green") + geom_vline(xintercept = log10(1775), colour = "red") +  geom_vline(xintercept = log10(11500), colour = "green") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic()
+
+#log scaled - all time
+ggplot() + geom_line(data = GoStL_stairway, aes(y = Ne_median, x = log10(year), colour = "GoStL" )) + 
+  geom_line(data = GoStL_stairway, aes(y = Ne_2.5, x = log10(year), colour = "GoStL" )) +
+  geom_line(data = GoStL_stairway, aes(y = Ne_97.5, x = log10(year), colour = "GoStL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") +geom_vline(xintercept = log10(115000), colour = "green") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic() + geom_line(data = ATL_stairway, aes(y = Ne_median, x = log10(year), colour = "ATL" )) + 
+  geom_line(data = ATL_stairway, aes(y = Ne_2.5, x = log10(year), colour = "ATL" )) +
+  geom_line(data = ATL_stairway, aes(y = Ne_97.5, x = log10(year), colour = "ATL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") + geom_vline(xintercept = log10(115000), colour = "green") + geom_vline(xintercept = log10(2000), colour = "red") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic()
+
+
+#plot stairways - Atlantic herring mut rate
+GoStL_stairway_hm <- fread("~/Desktop/Software/stairway_plot_v2.1.1/halibut_Gulf_fold_200_herring_mut//Atlantic Halibut Gulf 10 to 500K years.final.summary", stringsAsFactors = F, data.table = F)
+colnames(GoStL_stairway_hm) <- c("mutation_per_site",     "n_estimation",          "theta_per_site_median", "theta_per_site_2.5",   "theta_per_site_97.5","year", "Ne_median" ,"Ne_2.5","Ne_97.5", "Ne_12.5",  "Ne_87.5" )
+
+ATL_stairway_hm <- fread("~/Desktop/Software/stairway_plot_v2.1.1/halibut_ATL_fold_200_herring_mut/Atlantic Halibut ATL 10 to 500K years.final.summary", stringsAsFactors = F, data.table = F)
+colnames(ATL_stairway_hm) <- c("mutation_per_site",     "n_estimation",          "theta_per_site_median", "theta_per_site_2.5",   "theta_per_site_97.5","year", "Ne_median" ,"Ne_2.5","Ne_97.5", "Ne_12.5",  "Ne_87.5" )
+GoStL_stairway_hm$year[which(GoStL_stairway_hm$Ne_median==min(GoStL_stairway_hm$Ne_median))]
+min(ATL_stairway_hm$Ne_median)
+
+#log scaled
+ggplot() + geom_line(data = GoStL_stairway_hm[which(GoStL_stairway_hm$year<150000),], aes(y = Ne_median, x = log10(year), colour = "GoStL" )) + 
+  geom_line(data = GoStL_stairway_hm[which(GoStL_stairway_hm$year<150000),], aes(y = Ne_2.5, x = log10(year), colour = "GoStL" )) +
+  geom_line(data = GoStL_stairway_hm[which(GoStL_stairway_hm$year<150000),], aes(y = Ne_97.5, x = log10(year), colour = "GoStL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") +geom_vline(xintercept = log10(115000), colour = "green") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic() + geom_line(data = ATL_stairway_hm[which(ATL_stairway_hm$year<150000),], aes(y = Ne_median, x = log10(year), colour = "ATL" )) + 
+  geom_line(data = ATL_stairway_hm[which(ATL_stairway_hm$year<150000),], aes(y = Ne_2.5, x = log10(year), colour = "ATL" )) +
+  geom_line(data = ATL_stairway_hm[which(ATL_stairway_hm$year<150000),], aes(y = Ne_97.5, x = log10(year), colour = "ATL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") + geom_vline(xintercept = log10(115000), colour = "green") + geom_vline(xintercept = log10(1775), colour = "red") + geom_vline(xintercept = log10(11500), colour = "green") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic()
+
+#log scaled - all time
+ggplot() + geom_line(data = GoStL_stairway_hm, aes(y = Ne_median, x = log10(year), colour = "GoStL" )) + 
+  geom_line(data = GoStL_stairway_hm, aes(y = Ne_2.5, x = log10(year), colour = "GoStL" )) +
+  geom_line(data = GoStL_stairway_hm, aes(y = Ne_97.5, x = log10(year), colour = "GoStL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") +geom_vline(xintercept = log10(115000), colour = "green") +geom_vline(xintercept = log10(11500), colour = "green") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic() + geom_line(data = ATL_stairway_hm, aes(y = Ne_median, x = log10(year), colour = "ATL" )) + 
+  geom_line(data = ATL_stairway_hm, aes(y = Ne_2.5, x = log10(year), colour = "ATL" )) +
+  geom_line(data = ATL_stairway_hm, aes(y = Ne_97.5, x = log10(year), colour = "ATL" )) + 
+  geom_vline(xintercept = log10(5000), colour = "blue") + geom_vline(xintercept = log10(7000), colour = "blue") + geom_vline(xintercept = log10(19000), colour = "green") + geom_vline(xintercept = log10(115000), colour = "green") + geom_vline(xintercept = log10(5000), colour = "red") +
+  geom_vline(xintercept = log10(10)) + geom_vline(xintercept = log10(100)) + geom_vline(xintercept = log10(1000)) + geom_vline(xintercept = log10(10000))   + geom_vline(xintercept = log10(100000)) + theme_classic()
+
+
+#Tajima D and π with ANGSD
+Halibut_ATL_200.thetas.idx <- read.delim("~/Desktop/Projects/Halibut_FinalRAD/Halibut_ATL_200.thetas.idx.pestPG", header=FALSE, comment.char="#")
+colnames(Halibut_ATL_200.thetas.idx) <- c("indexstuff",	"Chr",	"WinCenter",	"tW",	"tP",	"tF",	"tH",	"tL",	"Tajima",	"fuf",	"fud",	"fayh",	"zeng",	"nSites")
+#TajimaD
+mean(Halibut_ATL_200.thetas.idx$Tajima)
+#pi
+mean(Halibut_ATL_200.thetas.idx$tP/Halibut_ATL_200.thetas.idx$nSites)
+Halibut_Gulf_200.thetas.idx <- read.delim("~/Desktop/Projects/Halibut_FinalRAD/Halibut_Gulf_200.thetas.idx.pestPG", header=FALSE, comment.char="#")
+colnames(Halibut_Gulf_200.thetas.idx) <- c("indexstuff",	"Chr",	"WinCenter",	"tW",	"tP",	"tF",	"tH",	"tL",	"Tajima",	"fuf",	"fud",	"fayh",	"zeng",	"nSites")
+#TajimaD
+mean(Halibut_Gulf_200.thetas.idx$Tajima)
+#pi
+mean(Halibut_Gulf_200.thetas.idx$tP/Halibut_Gulf_200.thetas.idx$nSites)
