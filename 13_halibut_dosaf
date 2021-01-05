@@ -1,0 +1,25 @@
+cd /home/tkess/scratch/Halibut_trim_demultiplex
+module load htslib
+module load samtools
+module load angsd
+
+/home/tkess/angsd/angsd \
+  -anc /home/tkess/Halibut/fHipHip1.pri.cur.20191125.fasta  \
+  -bam Allbams \
+  -out Halibut_All_734 \
+  -dosaf 1 \
+  -GL 1 \
+  -doCounts 1 \
+  -sites Halibut_angsd.bed \
+  -rf halibut_chroms_22.txt \
+  -nThreads 20 \
+  -minMapQ 30 \
+  -minQ 20 \
+  -minInd 734 \
+  -doMajorMinor 5 \
+  -doMaf 2 \
+  -uniqueOnly 1 \
+  -remove_bads 1 \
+  -only_proper_pairs 1 \
+
+
