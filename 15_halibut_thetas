@@ -1,0 +1,5 @@
+/home/tkess/angsd/misc/realSFS saf2theta  Halibut_ATL.saf.idx -sfs Halibut_ATL_200_fold.txt -outname Halibut_ATL_200
+/home/tkess/angsd/misc/thetaStat do_stat Halibut_ATL_200.thetas.idx 
+
+/home/tkess/angsd/misc/realSFS saf2theta  Halibut_Gulf.saf.idx -sfs Halibut_Gulf_200_fold.txt -outname Halibut_Gulf_200
+/home/tkess/angsd/misc/thetaStat do_stat Halibut_Gulf_200.thetas.idx 
