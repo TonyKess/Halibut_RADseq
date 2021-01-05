@@ -1,0 +1,16 @@
+./SNeP1.1   -ped Halibut_FinalGenome_SNEP/Halibut_nosexchrom_Gulf60.ped \
+  -map Halibut_FinalGenome_SNEP/Halibut_nosexchrom_Gulf60.map \
+  -ld \
+  -svedf
+
+
+  ./SNeP1.1   -ped Halibut_FinalGenome_SNEP/Halibut_nosexchrom_NOTGulf60.ped \
+  -map Halibut_FinalGenome_SNEP/Halibut_nosexchrom_NOTGulf60.map \
+  -ld \
+  -svedf
+
+
+./SNeP1.1   -ped Halibut_FinalGenome_SNEP/Halibut_nosexchrom.ped \
+  -map Halibut_FinalGenome_SNEP/Halibut_nosexchrom.map \
+  -ld \
+  -svedf
