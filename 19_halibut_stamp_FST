@@ -1,0 +1,30 @@
+library(vcfR)
+library(adegenet)
+library(StAMPP)
+library(rsed)
+library(dplyr)
+setwd("~/Desktop/Projects/Halibut_FinalRAD/")
+system("~/Desktop/Software/plink_mac_20200219/plink --file Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV  --recode vcf --chr-set 24 --within Gulfnogulf.txt --out Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV")
+
+##2.1 Read vcf file into into R
+vcf<-read.vcfR("Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV.vcf", verbose = FALSE)
+##2.2 Convert vcf into genlight object
+x <- vcfR2genlight(vcf)
+
+
+FAM <- read.delim("Halibut_finalgenome_mindp15_24chrom_ming90_HWE_noWF_allENV.fam", stringsAsFactors = F, header = F, sep = "")
+Metadata <- read.delim("Metadata_Halibut_ENV_noNAnoWF.txt", header = T, stringsAsFactors = F)
+ID <- FAM[1]
+colnames(ID)[1] <- "ID"
+Metadata_sorted <- inner_join(ID, Metadata)
+sample <- ID
+pop.names <- Metadata_sorted$Region
+Gulf_FST_list <- read.delim("Gulfnogulf.txt", header = F)
+colnames(Gulf_FST_list) <- c("ID", "ID_also", "Group")
+Metadata_sorted <- inner_join(Metadata_sorted, Gulf_FST_list)
+Metadata_sorted$Group <- as.factor(Metadata_sorted$Group)
+x@ind.names <- Metadata_sorted$ID
+x@pop <- as.factor(Metadata_sorted$Group)
+geno <- stamppConvert(x, type = "genlight") 
+
+FST_WC <- stamppFst(geno = geno, nboots = 500, nclusters = 20)
